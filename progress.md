@@ -134,16 +134,16 @@ Changes applied:
 
 ### Open Issues (not yet fixed — document only)
 
-1. **Cross-lingual retrieval miss for Tamil/Bengali/Gujarati (observed finding, not a crash)**
-   - Tamil tyre pressure, Bengali engine oil, Gujarati tyre pressure all return refusals (sources=0)
-   - Hindi and Kannada equivalents get sources=5. Same underlying manual content.
-   - Likely cause: cross-lingual embedding alignment varies by language. Hindi and Kannada embed closer to English in text-embedding-3-small than Tamil/Bengali/Gujarati for these specific queries.
-   - Impact: users asking basic questions in Tamil/Bengali/Gujarati get a refusal rather than an answer.
-   - Status: documented, not fixed. Requires investigation (possibly query translation before embedding for weaker-aligned languages).
-
-2. **Enter key in text area creates newline instead of submitting**
+1. **Enter key in text area creates newline instead of submitting**
    - st.text_area does not intercept Enter. st.chat_input was tried and reverted (layout issues).
-   - Accepted for demo. Users use the ↑ send button.
+   - Ctrl+Enter submits. Accepted for demo. Users use the ↑ send button or Ctrl+Enter.
+
+### Resolved Issues (previously open)
+
+- **Cross-lingual retrieval miss for Tamil/Bengali/Gujarati** — RESOLVED (Decision #35, #36, 2026-05-25)
+  - Root cause was NOT embedding alignment — the rewriter was already translating to English before embedding (scores 0.37–0.49, not 0.09–0.11). L9 was based on measuring raw Indic query similarity, not post-rewrite.
+  - Actual bug 1: sarvam-m context window (7192 tokens) exceeded by 5-chunk prompt (~9570 tokens) → 422 crash. Fixed: GPT-4o generates English answer → sarvam-m translates.
+  - Actual bug 2: token guard (75-token limit) misfired on Indic scripts — Tamil tokenizes to 76 tokens for a short query (cl100k_base has no Indic vocabulary). Fixed: skip guard for Indic.
 
 ---
 
@@ -181,14 +181,16 @@ Changes applied:
 
 ---
 
-## Decisions Log — COMPLETE (#29–#34)
+## Decisions Log — COMPLETE (#29–#36)
 
 - **#29** — sarvam-m switch + reasoning mode + `max_tokens=2048` + `_strip_think()` + `_call_sarvam()`
-- **#30** — Section-diversity heuristic for dilution detection; threshold calibration on real data
+- **#30** — Section-diversity heuristic for dilution detection; `_DILUTION_MIN_SECS` raised 3→5 after false positive on single-topic Indic queries
 - **#31** — Image auto-clears after every query; `_clear_image` flag + `uploader_key` increment
 - **#32** — Voice auto-submits after transcription; `st.chat_input` path described (NOTE: reverted to `st.text_area` for layout reasons — Decision #32 partially describes superseded state)
 - **#33** — 75-token guard applies to user `prompt` only, not `combined_query`
 - **#34** — Dilution classifier skipped for Indic queries
+- **#35** — Indic generation: GPT-4o generates English answer, sarvam-m translates (fixes sarvam-m 7192-token context window crash)
+- **#36** — Token guard skipped for Indic queries (cl100k_base tokenizes Indic scripts 5–7× more densely than English)
 
 ---
 
@@ -235,8 +237,8 @@ bike-bot/
 ├── .env.example              ← Template
 ├── requirements.txt          ← All dependencies including langdetect>=1.0.9
 ├── progress.md               ← This file
-├── decisions-log.md          ← 34 decisions logged; complete
-└── errors-and-fixes.md       ← Audit log; ECA-01, MT-01–MT-08 documented; cross-lingual open issue
+├── decisions-log.md          ← 36 decisions logged; complete
+└── errors-and-fixes.md       ← Audit log; ECA-01, MT-01–MT-08, MT-16–MT-17 documented
 ```
 
 ---
@@ -247,7 +249,7 @@ bike-bot/
 1. Vision: if image attached, `describe_image()` → `vision_description`
 2. Build `combined_query = prompt + vision_description`
 3. `detected_language = detect_language(combined_query)` → "english" or "indic"
-4. Token guard: if >75 tokens in `prompt` (NOT combined_query) → `generate_guard_message(combined_query, detected_language)` → stop
+4. Token guard: if >75 tokens in `prompt` AND `detected_language != "indic"` → `generate_guard_message(combined_query, detected_language)` → stop (skipped for Indic — Decision #36)
 5. `rewrite_query(combined_query)` → retrieval_query (neutralises false premises)
 6. `get_candidates(retrieval_query)` → 20 raw candidates (each has text, section, page, similarity)
 7. `rerank(retrieval_query, candidates)` → top-5 chunks or [] if all scored < 6
@@ -257,7 +259,7 @@ bike-bot/
    - dilution + english → MULTI_TOPIC_RESPONSE
    - out_of_scope + english → NO_CONTEXT_RESPONSE
    - chunks present + english → GPT-4o (model="gpt-4o", max_tokens=600)
-   - chunks present + indic → sarvam-m via `_call_sarvam()` (max_tokens=2048)
+   - chunks present + indic → GPT-4o generates English answer → sarvam-m translates to user's language (Decision #35)
 
 **Sarvam API:**
 - Base URL: `https://api.sarvam.ai/v1`
@@ -275,7 +277,7 @@ bike-bot/
 **Dilution thresholds (reranker.py):**
 - `_DILUTION_OOS_THRESHOLD = 0.20` — top candidate below this = genuinely OOS
 - `_DILUTION_SPREAD_MIN = 0.40` — at/above this = real content hit
-- `_DILUTION_MIN_SECS = 3` — ≥ 3 of top-5 at ≥ 0.40 AND ≥ 3 distinct sections = dilution
+- `_DILUTION_MIN_SECS = 5` — all top-5 must be from ≥ 5 distinct sections = dilution (raised from 3 after false positive on single-topic oil queries)
 
 **To run the app:** `streamlit run app.py` (from bike-bot directory)
 **To run the audit:** `python audit_l2_l3.py` (from bike-bot directory)

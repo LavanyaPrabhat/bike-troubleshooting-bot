@@ -507,6 +507,32 @@ For Indic queries, the classifier is additionally guarded by the Decision #34 sh
 
 ---
 
+## 36. Token Guard Skipped for Indic Queries
+
+**Decision:** The 75-token guard in `app.py` is skipped when `detected_language == "indic"`. The condition changed from `if len(_tokenizer.encode(prompt)) > MAX_QUERY_TOKENS` to `if detected_language != "indic" and len(_tokenizer.encode(prompt)) > MAX_QUERY_TOKENS`.
+
+**Root cause:** `cl100k_base` (tiktoken) tokenizes Indic scripts 5–7× more densely than English because it has no vocabulary entries for non-Latin scripts and encodes them byte-by-byte. A short 11-word Tamil query tokenizes to 76 tokens; Kannada 74; Telugu 60; Gujarati 65 — all above or dangerously close to the 75-token limit. Every short Tamil query was hitting the guard and receiving the multi-topic response before the pipeline ran.
+
+**Token counts for equivalent queries across scripts (11-word "how often to change engine oil"):**
+
+| Language | Tokens |
+|---|---|
+| English | 11 |
+| Hindi | 39 |
+| Marathi | 39 |
+| Bengali | 46 |
+| Malayalam | 56 |
+| Telugu | 60 |
+| Gujarati | 65 |
+| Kannada | 74 |
+| Tamil | 76 |
+
+**Why skip rather than apply guard post-translation:** Applying the guard to the rewritten English query (after `rewrite_query()`) would require making a GPT-4o API call before the guard — defeating its purpose as a cheap pre-filter. Additionally, the rewriter always compresses multi-topic queries to short English, so the guard would rarely fire on the rewritten output regardless.
+
+**Multi-topic handling for Indic:** Indic multi-topic queries are caught downstream — the reranker returns [] when no single chunk scores ≥ 6, and `generate_answer()` returns `_generate_indic_refusal()` (Decision #34). The user gets a graceful refusal in their language rather than the specific "ask one topic at a time" message, but the outcome (re-ask) is the same.
+
+---
+
 ## Known Limitations (as of Level 1 Hardening)
 
 The following limitations remain after all edge case fixes. These are honest assessments for interview discussion.

@@ -487,3 +487,13 @@ All 13 P0 crashes resolved.
 **Fix (Decision #35):** Changed Indic generation path from "sarvam-m generates directly from chunks" to "GPT-4o generates answer (128K context, no limit) → sarvam-m translates the short answer to user's language (~500 token prompt, well within 7192 limit)."
 
 **Verified:** Tamil end-to-end diagnostic confirmed: rewrite → retrieval (0.369–0.489) → rerank (7.0) → GPT-4o English answer → sarvam-m Tamil translation → correct Tamil answer with source citation.
+
+---
+
+### MT-17 — Token guard misfires on all Indic scripts (FIXED)
+
+**Symptom:** Tamil queries returned the multi-topic guard response ("Your question covers multiple issues at the same time...") before the pipeline ran. Short Tamil query like "How often should the oil be changed?" produced the guard message instead of an answer.
+
+**Root cause:** `cl100k_base` (tiktoken) tokenizes Indic scripts 5–7× more densely than English — it has no vocabulary entries for non-Latin scripts and encodes them byte-by-byte. An 11-word Tamil query tokenizes to 76 tokens, just over the 75-token limit. This affected all Indic scripts: Kannada (74), Telugu (60), Gujarati (65), Malayalam (56). Hindi (39) and Marathi (39) are less affected for short queries but would still hit the limit for moderate-length questions.
+
+**Fix (Decision #36):** Skip the token guard when `detected_language == "indic"`. One-line change in `app.py`: `if detected_language != "indic" and len(_tokenizer.encode(prompt)) > MAX_QUERY_TOKENS`. Indic multi-topic detection is handled downstream by the reranker (returns [] → refusal).
