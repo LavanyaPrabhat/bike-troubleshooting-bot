@@ -135,7 +135,10 @@ def _run_assistant_turn(prompt: str) -> None:
         detected_language = detect_language(combined_query)
 
         # Token guard applies to the user's text only, not the vision description.
-        if len(_tokenizer.encode(prompt)) > MAX_QUERY_TOKENS:
+        # Skipped for Indic: cl100k_base tokenizes Indic scripts ~5-7x more densely
+        # than English, so even a short Tamil or Kannada query exceeds 75 tokens.
+        # Indic multi-topic handling is done via Decision #34's dilution bypass.
+        if detected_language != "indic" and len(_tokenizer.encode(prompt)) > MAX_QUERY_TOKENS:
             with st.spinner("Writing answer...") if detected_language == "indic" else st.empty():
                 answer_text = generate_guard_message(combined_query, detected_language)
             st.markdown(answer_text)
