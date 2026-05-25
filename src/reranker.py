@@ -69,12 +69,21 @@ def _parse_scores(response_text: str, n: int) -> list[float]:
 # up as section diversity, not low scores. Genuine OOS queries score < 0.20 because
 # the entire corpus is motorcycle-domain and has near-zero overlap with unrelated topics.
 #
-# Signal for dilution: top-5 candidates score ≥ 0.40 AND scatter across ≥ 3 sections.
+# Signal for dilution: top-5 candidates score ≥ 0.40 AND scatter across ≥ 5 sections.
 # Signal for OOS:      top candidate scores < 0.20.
+#
+# _DILUTION_MIN_SECS raised from 3 → 5 after Malayalam diagnostic showed a
+# single-topic "check engine oil" query retrieving from 4 sections (MINOR
+# MAINTENANCE TIPS × 2 + WARNING INDICATIONS + RECOMMENDED LUBRICANTS +
+# PERIODICAL MAINTENANCE) — all thematically related — and misfiring as
+# "dilution". Requiring all top-5 candidates to be from distinct sections is a
+# tighter signal that only genuinely multi-topic queries satisfy. The original
+# calibration case ("engine noise + brakes + battery") produced 5 distinct
+# sections and still fires correctly at the new threshold.
 
 _DILUTION_OOS_THRESHOLD  = 0.20  # below this → genuinely not in manual
 _DILUTION_SPREAD_MIN     = 0.40  # at or above this = retrieval found real content
-_DILUTION_MIN_SECS       = 3     # must scatter across ≥ this many sections
+_DILUTION_MIN_SECS       = 5     # all top-5 must be from distinct sections → true dilution
 
 
 def classify_retrieval_failure(candidates: list[dict]) -> str:

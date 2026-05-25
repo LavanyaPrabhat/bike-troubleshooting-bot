@@ -424,16 +424,22 @@ This asymmetry means the classification can be done purely on the candidate simi
 **Thresholds (calibrated empirically on this corpus):**
 - `_DILUTION_OOS_THRESHOLD = 0.20` — if the top candidate scores below 0.20, the query is genuinely outside the corpus domain. Return the standard refusal.
 - `_DILUTION_SPREAD_MIN = 0.40` — candidates scoring ≥ 0.40 represent real content hits (the manual has relevant material for that sub-topic).
-- `_DILUTION_MIN_SECS = 3` — dilution is confirmed if ≥ 3 of the top-5 candidates score ≥ 0.40 *and* come from ≥ 3 distinct sections. A single section appearing multiple times is focused retrieval, not dilution.
+- `_DILUTION_MIN_SECS = 5` — dilution is confirmed if ≥ 3 of the top-5 candidates score ≥ 0.40 *and* all 5 top candidates come from distinct sections. Raised from 3 → 5 after Malayalam diagnostic (see below).
 
 **Verification on real data:**
-- Multi-topic query "engine noise + brakes + battery": top-5 similarity 0.46–0.49, 5 distinct sections → correctly `"dilution"` → multi-topic UX message.
 - OOS "capital of France": top-5 similarity 0.11–0.12 → correctly `"out_of_scope"` → standard refusal.
 - Single-topic "engine oil level": reranker returns sources=5 — dilution classifier is never called (it only runs when chunks is empty).
 
-**Difference from the 75-token guard (Decision #18):** The 75-token guard fires *before* retrieval on the raw token count of the query. It catches verbose multi-symptom queries where length itself is the signal. The dilution classifier fires *after* retrieval, on post-hoc similarity score patterns. The two guards cover different failure modes: the token guard catches long queries the system should never try to retrieve for; the dilution classifier catches short but broad queries that retrieval attempted but couldn't focus. A query like "engine noise + brakes + battery" (35 tokens, under the 75-token guard) reaches the dilution classifier. A verbose single-topic question (80 tokens) hits the token guard before the dilution classifier is ever invoked.
+**Recalibration — _DILUTION_MIN_SECS raised from 3 → 5 (post Malayalam diagnostic):**
+Malayalam pipeline diagnostic ("How do I check engine oil?" via voice) revealed that a single-topic engine oil query retrieves from 4 sections (MINOR MAINTENANCE TIPS × 2 pages + WARNING INDICATIONS + RECOMMENDED LUBRICANTS + PERIODICAL MAINTENANCE) all at sim ≥ 0.40, causing the classifier to return `"dilution"` even though the query is entirely single-topic. These sections are thematically co-located — all relate to engine oil maintenance — and the diversity is an artefact of how the manual organises related content across sections, not evidence of a multi-topic query.
 
-**Trade-off:** The thresholds (0.20, 0.40, 3 sections) are calibrated on 130 chunks of this specific manual with `text-embedding-3-small`. A different corpus, a different embedding model, or a very different query distribution could shift these values. Recalibration would be needed for production. The current values are tested and correct for this system.
+Raising `_DILUTION_MIN_SECS` to 5 requires all five top-5 candidates to come from distinct sections — a much tighter criterion that only fires when retrieval has genuinely spread across unrelated parts of the manual. Keyword multi-topic queries ("engine noise brakes battery") do not trigger this because their embeddings collapse into one dominant section. Natural-language multi-topic queries produce lower overall similarity (0.37–0.38 observed), which falls below `_DILUTION_SPREAD_MIN` and routes to `"out_of_scope"` — an acceptable fallback (the generic refusal is still correct, just less specific).
+
+For Indic queries, the classifier is additionally guarded by the Decision #34 short-circuit in `generate_answer()`: Indic queries with empty chunks never reach `classify_retrieval_failure` regardless of thresholds.
+
+**Difference from the 75-token guard (Decision #18):** The 75-token guard fires *before* retrieval on the raw token count of the query. The dilution classifier fires *after* retrieval. The two guards cover different failure modes: the token guard catches verbose multi-symptom queries; the dilution classifier catches short but broad queries retrieval couldn't focus.
+
+**Trade-off:** The thresholds are calibrated on 130 chunks of this specific manual with `text-embedding-3-small`. The `_DILUTION_MIN_SECS = 5` threshold makes the multi-topic path harder to trigger; in practice the multi-topic message is now rarely shown and the fallback is the standard "I couldn't find that" refusal. Acceptable for a prototype where false positives are more damaging than false negatives.
 
 ---
 
