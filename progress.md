@@ -191,22 +191,71 @@ Changes applied:
 - **#34** — Dilution classifier skipped for Indic queries
 - **#35** — Indic generation: GPT-4o generates English answer, sarvam-m translates (fixes sarvam-m 7192-token context window crash)
 - **#36** — Token guard skipped for Indic queries (cl100k_base tokenizes Indic scripts 5–7× more densely than English)
+- **#37** — Rewriter always outputs "Interceptor 650" not "my bike" — specific model name retrieves measurably better (sim 0.560 vs 0.509)
 
 ---
 
-## Immediate Next Steps (for new session)
+## Full Project Summary (current state as of 2026-05-25)
 
-**Step 1 — DONE ✓** decisions-log.md Decisions #29–#34 written.
+### What was built
+RAG chatbot answering maintenance and troubleshooting questions for the Royal Enfield Interceptor 650, grounded strictly in the official owner's manual. Users can type, upload images, or record voice in English or any Indic language.
 
-**Step 2 — DONE ✓** errors-and-fixes.md: ECA-01 fixed, multi-topic dilution, cross-lingual open issue, MT-01–MT-08 appended.
+### GitHub
+Repo: https://github.com/LavanyaPrabhat/bike-troubleshooting-bot
+Author: Lavanya Prabhat <lavanyapandey5@gmail.com>
+Latest commit: 0f42ee0
+All 8 commits authored by Lavanya Prabhat. No other names appear in any committed file.
 
-**Step 3 — DONE ✓** Manual browser testing: all 11 cases run, 6 bugs fixed.
+### Deployment
+Live on Streamlit Cloud (auto-deploys on push to master).
+Secrets OPENAI_API_KEY and SARVAM_API_KEY set via Streamlit Cloud UI — not in repo.
 
-**Step 4 — DONE ✓** Layout simplified: two-row input area below chat history.
+### Pipeline (end-to-end)
+1. Image (optional) → GPT-4o Vision → symptom description
+2. Language detection → "english" or "indic" (two-stage: Unicode script ranges → langdetect)
+3. Token guard: >75 tokens AND English only → multi-topic guard message (skipped for Indic — Decision #36)
+4. Rewriter (GPT-4o, temp=0) → normalised English query; always outputs "Interceptor 650" not "my bike" (Decision #37)
+5. Hybrid retrieval: semantic (text-embedding-3-small) + BM25, fused via RRF → 20 candidates
+6. Reranker (GPT-4o, temp=0) → scores 0–10, returns top 5 or [] if top score < 6
+7. Generator:
+   - Indic + chunks → GPT-4o generates English answer → sarvam-m translates to user's language (Decision #35)
+   - English + chunks → GPT-4o generates English answer
+   - Indic + no chunks → sarvam-m generates refusal in user's language (dilution classifier skipped — Decision #34)
+   - English + no chunks → dilution classifier → MULTI_TOPIC_RESPONSE or NO_CONTEXT_RESPONSE
 
-**Step 5 — Interview prep / demo run**
-- Start app: `streamlit run app.py` (restart required to pick up latest app.py)
-- Run through golden path: English text query → English voice → Hindi voice → image + Hindi query
+### All bugs fixed (complete list)
+- EC01: empty string guard in get_candidates()
+- EC04: 75-token multi-topic guard
+- EC14: reranker scoring for symptom/diagnostic pages
+- EC18/22: false-premise rewriter + generator Rule 6
+- EC25/27/28: Vision error handling
+- ECA-01: sarvam-m reasoning mode crash (content=None, max_tokens=600)
+- MT-01: image bleed across queries
+- MT-02: voice recording infinite hang
+- MT-03: text box not clearing after send
+- MT-05: dilution classifier misfiring on Indic
+- MT-06: vision box missing in Indic path
+- MT-09: long recording raw API error message
+- MT-10: Hinglish rewriter missing address word stripping
+- MT-16: sarvam-m context window (7192 tokens) exceeded by 5-chunk prompt → 422 crash
+- MT-17: Indic token over-tokenization — Tamil 76 tokens > 75-token guard, misfired on all queries
+- MT-18: rewriter outputting "my bike" instead of "Interceptor 650" for Indic queries → wrong retrieval
+
+### Known limitations (accepted)
+- L1: White smoke from exhaust — content genuinely absent from manual (not an extraction failure)
+- L2: 75-token limit may block a verbose but single-topic English query
+- L10b: Plain Enter creates newline; Ctrl+Enter submits (Streamlit limitation)
+- L10: Post-transcription audio widget cosmetic error flash (~2 seconds)
+- L11: Text box lingers for ~1s after send
+- L12: "200MB per file" label on file uploader (Streamlit cannot suppress it)
+
+### Documents
+- decisions-log.md: 37 decisions + Known Limitations L1–L12 (L9 struck as resolved)
+- errors-and-fixes.md: ECA-01, MT-01–MT-18
+- README.md: live on GitHub; demo URL and Loom link placeholders to be filled
+
+### Nothing outstanding
+All levels complete. All known bugs fixed. All decisions and errors documented. Deployed and live.
 
 ---
 
@@ -237,8 +286,8 @@ bike-bot/
 ├── .env.example              ← Template
 ├── requirements.txt          ← All dependencies including langdetect>=1.0.9
 ├── progress.md               ← This file
-├── decisions-log.md          ← 36 decisions logged; complete
-└── errors-and-fixes.md       ← Audit log; ECA-01, MT-01–MT-08, MT-16–MT-17 documented
+├── decisions-log.md          ← 37 decisions logged; complete
+└── errors-and-fixes.md       ← Audit log; ECA-01, MT-01–MT-08, MT-16–MT-18 documented
 ```
 
 ---
