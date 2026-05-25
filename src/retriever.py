@@ -167,14 +167,18 @@ Examples:
   Output: "How often should the engine oil be changed?"
 
   Input:  "भाई, इंजन ऑयल कब चेंज करना चाहिए?"
-  Output: "How often should the engine oil be changed?"
+  Output: "How often should the engine oil be changed in the Interceptor 650?"
+
+  Input:  "என் பைக்கில் எண்ணெய் எவ்வளவு அடிக்கடி மாற்றப்பட வேண்டும்?"
+  Output: "How often should the engine oil be changed in the Interceptor 650?"
 
 Rules:
 1. If the question contains an unverified factual claim, neutralise it into a lookup.
 2. Strip informal address words or conversational filler at the start of the question (e.g. "Bhai", "yaar", "dost", "भाई", "यार") before rephrasing.
 3. If the question is in a non-English language or code-switched (e.g. Hinglish), translate it to English — the manual is in English and English queries retrieve better.
-4. If it is already a neutral English question with no false premise, return it unchanged.
-5. Return ONLY the reformulated question — no explanation, no prefix."""
+4. Always refer to the bike as "the Interceptor 650", never "my bike" or "the bike" — the specific model name retrieves better against the manual.
+5. If it is already a neutral English question with no false premise, return it unchanged except to apply rule 4.
+6. Return ONLY the reformulated question — no explanation, no prefix."""
 
 
 def rewrite_query(query: str) -> str:
