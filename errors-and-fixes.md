@@ -497,3 +497,17 @@ All 13 P0 crashes resolved.
 **Root cause:** `cl100k_base` (tiktoken) tokenizes Indic scripts 5–7× more densely than English — it has no vocabulary entries for non-Latin scripts and encodes them byte-by-byte. An 11-word Tamil query tokenizes to 76 tokens, just over the 75-token limit. This affected all Indic scripts: Kannada (74), Telugu (60), Gujarati (65), Malayalam (56). Hindi (39) and Marathi (39) are less affected for short queries but would still hit the limit for moderate-length questions.
 
 **Fix (Decision #36):** Skip the token guard when `detected_language == "indic"`. One-line change in `app.py`: `if detected_language != "indic" and len(_tokenizer.encode(prompt)) > MAX_QUERY_TOKENS`. Indic multi-topic detection is handled downstream by the reranker (returns [] → refusal).
+
+---
+
+### MT-18 — Rewriter outputs "my bike" for Indic queries, causing wrong retrieval (FIXED)
+
+**Symptom:** Tamil query "how often should the oil be changed in my bike?" was correctly translated to English by the rewriter but produced "my bike" instead of "Interceptor 650". This caused retrieval to surface MINOR MAINTENANCE TIPS p59 (oil drain procedure) at the top instead of PERIODICAL MAINTENANCE p104 (maintenance schedule with oil change intervals). Reranker scored the procedure page 3–4 and returned [], giving a Tamil refusal for a question the manual clearly answers.
+
+**Root cause:** The rewriter had no instruction or example showing that "my bike" should be replaced with "Interceptor 650". English queries happened to trigger this substitution implicitly because GPT-4o associated "Interceptor 650 manual" context with the model name. Indic translations, being further from the training distribution, defaulted to the literal "my bike."
+
+**Impact on retrieval:**
+- "my bike" → top candidate MINOR MAINTENANCE TIPS p59, sim 0.509, reranker score 3–4 → []
+- "Interceptor 650" → top candidate PERIODICAL MAINTENANCE p104, sim 0.560, reranker score 7–9 → 5 chunks
+
+**Fix (Decision #37):** Added Rule 4 to `_REWRITE_SYSTEM`: "Always refer to the bike as 'the Interceptor 650', never 'my bike' or 'the bike'." Added Tamil and Hindi illustrative examples. Verified across 8 Indic scripts + English — all produce identical "Interceptor 650" output at temperature=0.

@@ -533,6 +533,25 @@ For Indic queries, the classifier is additionally guarded by the Decision #34 sh
 
 ---
 
+## 37. Rewriter Always Outputs "Interceptor 650", Never "My Bike"
+
+**Decision:** Added Rule 4 to `_REWRITE_SYSTEM` in `retriever.py`: "Always refer to the bike as 'the Interceptor 650', never 'my bike' or 'the bike'." Added Tamil and Hindi examples that demonstrate the substitution.
+
+**Root cause discovered:** The rewriter was correctly translating Indic queries to English, but producing "my bike" instead of "Interceptor 650" — e.g. Tamil "how often should the oil be changed in my bike?" → `"How often should the engine oil be changed in my bike?"`. The English query rewriter was already outputting "Interceptor 650" (e.g. `"How often should the oil be changed in the Interceptor 650?"`). This small difference caused meaningfully different retrieval:
+
+| Query variant | Top candidate | Sim | Reranker |
+|---|---|---|---|
+| "…in my bike" | MINOR MAINTENANCE TIPS p59 (procedure) | 0.509 | 3–4 → returns [] |
+| "…in the Interceptor 650" | PERIODICAL MAINTENANCE p104 (schedule) | 0.560 | 7–9 → returns chunks |
+
+`text-embedding-3-small` places "Interceptor 650" close to chunks that mention the model name — which are predominantly the spec and maintenance pages. "My bike" is generic and drifts toward procedural tips pages that don't answer interval questions.
+
+**Verified across all Indic scripts:** Tamil, Hindi, Malayalam, Kannada, Telugu, Gujarati, Bengali, Marathi — all produce identical output `"How often should the engine oil be changed in the Interceptor 650?"` at temperature=0.
+
+**End-to-end verified for Tamil:** Top sim 0.560, reranker 5 chunks, top score 7.0, correct Tamil-language answer with oil change intervals and page citations (PERIODICAL MAINTENANCE pp. 99, 104).
+
+---
+
 ## Known Limitations (as of Level 1 Hardening)
 
 The following limitations remain after all edge case fixes. These are honest assessments for interview discussion.
