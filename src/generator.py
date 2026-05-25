@@ -234,12 +234,38 @@ def generate_answer(
     user_message = _build_user_message(question, chunks, vision_description)
 
     if detected_language == "indic":
-        answer = _call_sarvam(
+        # GPT-4o generates the English answer (128K context handles 5 full chunks).
+        # sarvam-m context window is 7192 tokens — too small to hold the full prompt.
+        response = client.chat.completions.create(
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": user_message},
             ],
-            max_tokens=2048,
+            temperature=0.3,
+            max_tokens=600,
+        )
+        english_answer = response.choices[0].message.content.strip()
+        answer = _call_sarvam(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a translation assistant. "
+                        "Output ONLY the translated text — no explanations, no preamble."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Translate the message below into the same language as this sample "
+                        f"(use the sample ONLY to identify the language — do not answer it):\n"
+                        f"SAMPLE: {question}\n\n"
+                        f"MESSAGE TO TRANSLATE: {english_answer}"
+                    ),
+                },
+            ],
+            max_tokens=1024,
         )
     else:
         response = client.chat.completions.create(

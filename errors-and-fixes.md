@@ -473,3 +473,17 @@ All 13 P0 crashes resolved.
 **Root cause:** `label_visibility="collapsed"` hides the widget label but not the built-in format/size hint. No Streamlit API parameter suppresses it.
 
 **Decision:** Accepted as cosmetic limitation L12. A custom HTML component would remove it but was rejected as over-engineering for a demo. Functionally sufficient.
+
+---
+
+### MT-16 — Tamil (all Indic) generation crashes with sarvam-m context window exceeded (FIXED)
+
+**Symptom:** Tamil query successfully retrieved and reranked 5 chunks (top rerank score 7.0) but `generate_answer()` raised `openai.UnprocessableEntityError: Error code: 422 — prompt_tokens (9570) + max_tokens (2048) = 11618 exceeds the model context window of 7192 tokens for sarvam-m.`
+
+**Root cause:** sarvam-m has a 7192-token context window. The `SYSTEM_PROMPT` + 5 full manual chunks + question = ~9570 tokens — already over the limit before any answer budget. This crash was hidden by the L9 retrieval gap: most Indic queries were failing at retrieval (returning []) and never reaching the generation step. Once the rewriter correctly translated queries to English and retrieval started succeeding (similarity 0.37–0.49 for Tamil), the generation path was reached and the crash became visible.
+
+**Also discovered:** The L9 "Tamil retrieval gap" (similarity 0.09–0.11) was measured on the raw Tamil text before the rewriter translated it. After rewriter translation, the English query scores 0.37–0.49 — retrieval works fine. L9 is resolved as a side-effect of this investigation.
+
+**Fix (Decision #35):** Changed Indic generation path from "sarvam-m generates directly from chunks" to "GPT-4o generates answer (128K context, no limit) → sarvam-m translates the short answer to user's language (~500 token prompt, well within 7192 limit)."
+
+**Verified:** Tamil end-to-end diagnostic confirmed: rewrite → retrieval (0.369–0.489) → rerank (7.0) → GPT-4o English answer → sarvam-m Tamil translation → correct Tamil answer with source citation.

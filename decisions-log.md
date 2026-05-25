@@ -487,6 +487,26 @@ For Indic queries, the classifier is additionally guarded by the Decision #34 sh
 
 ---
 
+## 35. Indic Generation: GPT-4o Generates, sarvam-m Translates
+
+**Decision:** The Indic answer generation path in `generator.py` was changed from "sarvam-m generates answer directly from manual chunks" to "GPT-4o generates English answer → sarvam-m translates to user's language."
+
+**Root cause discovered:** sarvam-m has a 7192-token context window. The system prompt + 5 full manual chunks = ~9570 prompt tokens, which exceeds the limit before any answer budget is added. Every Tamil (and potentially all Indic) query that successfully passed retrieval and reranking was crashing with a 422 `unprocessable_entity_error`. The cross-lingual retrieval gap documented in L9 was masking this crash: most Indic queries were failing at retrieval (returning []), so the generation path was never reached. Once the rewriter fix caused retrieval to succeed (top scores 0.37–0.49 for Tamil), the context window crash became visible.
+
+**L9 (Tamil retrieval gap) is now resolved.** The L9 diagnosis was based on measuring similarity of the raw Tamil query against the English corpus (0.09–0.11). This measurement was taken before the rewriter was updated to translate non-English queries to English. After the rewriter update, the English translation is what gets embedded — and its similarity is 0.37–0.49, fully sufficient for retrieval and reranking. Tamil, Bengali, and Gujarati retrieval now works correctly. L9 is struck as a known limitation.
+
+**New Indic generation flow:**
+1. `rewrite_query()` translates Indic query to English
+2. English query → BM25 + semantic retrieval → reranker (unchanged)
+3. GPT-4o generates answer from English chunks (128K context, no limit issue). Rule 7 in `SYSTEM_PROMPT` ("Respond in the same language the user's question is written in") causes GPT-4o to generate directly in the user's language.
+4. sarvam-m translates the GPT-4o answer into the user's language as a second pass (ensures Indic-model quality on the final text; translation prompt is ~500 tokens, well within the 7192-token window).
+
+**Why keep sarvam-m:** sarvam-m is purpose-built for Indic text and is the architecturally correct choice for a Sarvam AI take-home assignment. Its role shifts from generation (where its context window is a constraint) to translation (where it excels and the prompt is short).
+
+**Trade-off:** Two API calls per Indic query (GPT-4o + sarvam-m) instead of one. Acceptable for a demo; production could cache or batch.
+
+---
+
 ## Known Limitations (as of Level 1 Hardening)
 
 The following limitations remain after all edge case fixes. These are honest assessments for interview discussion.
@@ -521,18 +541,9 @@ The ChromaDB index is built once from the specific PDF. There is no mechanism to
 ### L6. Session State Is In-Memory
 Streamlit session state holds the full chat history in memory. Long sessions with many image uploads could consume significant memory. No pagination or history summarisation is implemented. Acceptable for a demo; production would persist history to a database.
 
-### L9. Tamil (and Bengali/Gujarati) Cross-Lingual Retrieval Gap
-**Confirmed via manual testing (L2-15) and retrieval diagnostic.**
+### ~~L9. Tamil (and Bengali/Gujarati) Cross-Lingual Retrieval Gap~~ — RESOLVED (Decision #35)
 
-Tamil voice queries transcribe correctly (Saaras V3 produces Tamil script, language detector correctly identifies as Indic) but the bot returns a Tamil refusal. Diagnostic shows this is a retrieval failure: top-5 cosine similarity scores for a Tamil engine oil query are 0.09–0.11 against the English manual chunks. This is far below the 0.20 OOS threshold and far below Hindi equivalents (0.23–0.27) or English equivalents (0.51+).
-
-**Root cause:** `text-embedding-3-small` has uneven cross-lingual alignment. Hindi and Kannada embed close enough to English for relevant content to surface at similarity 0.23–0.27, which is sufficient for the reranker to identify relevant passages. Tamil, Bengali, and Gujarati embed much further from English in this model's representation space — the same manual page scores 0.10 for a Tamil query vs 0.51 for the equivalent English query.
-
-**Why not fixed:** The fix would require translate-then-retrieve (translate the Indic query to English before embedding), which was deliberately not implemented (Decision #25). Implementing it would add latency, cost, and complexity. For a prototype scoped to Hindi and English, Tamil/Bengali/Gujarati retrieval failure is an acceptable and honestly-stated limitation.
-
-**What the user sees:** A graceful Tamil-language refusal ("I couldn't find that in the Interceptor 650 manual") — not a crash, not an English message. The failure is linguistically appropriate even if the content exists.
-
-**Production path:** Replace retrieval with a translate-then-retrieve step: translate all non-English queries to English before embedding, run English retrieval, then pass original query to sarvam-m for Indic generation. This would close the retrieval gap for Tamil/Bengali/Gujarati at the cost of one extra translation API call per Indic query.
+The L9 diagnosis was incorrect. The 0.09–0.11 similarity scores were measured on the raw Tamil text before the rewriter ran. The rewriter (`rewrite_query()`) translates all Indic queries to English before embedding; the English translation scores 0.37–0.49 against the English corpus — fully sufficient for retrieval and reranking. A live end-to-end diagnostic on 2026-05-25 confirmed Tamil retrieval and reranking both succeed (5 chunks returned, top rerank score 7.0). The actual failure was in the generation step: sarvam-m's 7192-token context window was exceeded by the 5-chunk prompt. Fixed in Decision #35.
 
 ### L10. Post-Transcription Error Flash in Audio Widget
 After a successful voice transcription, the Streamlit audio widget briefly shows a red error state for ~2 seconds before clearing. Root cause: `st.session_state.audio_key` is incremented and `st.rerun()` is called to reset the widget after transcription; Streamlit's internal audio widget state briefly renders an error indicator during the transition between the old keyed instance and the new one. The transcription, text population, and pipeline all complete correctly — this is a cosmetic rendering artifact only. Not fixable without replacing `st.audio_input` with a custom component, which was rejected as out of scope for a demo (Decision #32 notes).
