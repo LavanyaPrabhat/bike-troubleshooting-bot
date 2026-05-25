@@ -28,6 +28,119 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# ── GLOBAL STYLES ──────────────────────────────────────────────────────────────
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+
+/* FONT */
+html, body, [class*="st-"], .stMarkdown, button, input, textarea, select {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+}
+
+/* TITLE */
+h1 {
+    font-size: 1.45rem !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.02em !important;
+    color: #111827 !important;
+}
+
+/* BODY TEXT */
+p, li {
+    font-size: 0.9rem !important;
+    line-height: 1.7 !important;
+    color: #1f2937 !important;
+}
+.stCaption p {
+    font-size: 0.78rem !important;
+    color: #9ca3af !important;
+    line-height: 1.5 !important;
+}
+
+/* CHAT MESSAGES */
+[data-testid="stChatMessage"] {
+    border-radius: 8px !important;
+    padding: 0.5rem 0.75rem !important;
+    margin-bottom: 0.25rem !important;
+    gap: 0.75rem !important;
+}
+
+/* SOURCE EXPANDER */
+[data-testid="stExpander"] {
+    border: 1px solid #e5e7eb !important;
+    border-radius: 8px !important;
+    background-color: #f9fafb !important;
+    box-shadow: none !important;
+}
+[data-testid="stExpander"] summary {
+    font-size: 0.78rem !important;
+    color: #6b7280 !important;
+    font-weight: 500 !important;
+}
+
+/* DIVIDER */
+hr {
+    border: none !important;
+    border-top: 1px solid #e5e7eb !important;
+    margin: 0.5rem 0 !important;
+}
+
+/* SEND BUTTON */
+[data-testid="baseButton-primary"] {
+    background-color: #111827 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-size: 1rem !important;
+    font-weight: 500 !important;
+    transition: background-color 0.15s ease !important;
+}
+[data-testid="baseButton-primary"]:hover {
+    background-color: #374151 !important;
+    border: none !important;
+}
+
+/* TEXT AREA */
+textarea {
+    font-size: 0.88rem !important;
+    border-radius: 8px !important;
+    border-color: #e5e7eb !important;
+    background-color: #ffffff !important;
+    line-height: 1.5 !important;
+    color: #111827 !important;
+}
+textarea:focus {
+    border-color: #6b7280 !important;
+    box-shadow: 0 0 0 2px rgba(107,114,128,0.12) !important;
+}
+
+/* SIDEBAR */
+[data-testid="stSidebar"] {
+    background-color: #f9fafb !important;
+}
+[data-testid="stSidebar"] [data-testid="baseButton-secondary"] {
+    border-color: #e5e7eb !important;
+    color: #374151 !important;
+    border-radius: 6px !important;
+    font-size: 0.85rem !important;
+}
+
+/* INFO / WARNING BANNERS */
+[data-testid="stAlert"] {
+    border-radius: 8px !important;
+    font-size: 0.85rem !important;
+    border-left-width: 3px !important;
+}
+
+/* SPINNER */
+.stSpinner p {
+    font-size: 0.82rem !important;
+    color: #6b7280 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ── SESSION STATE ──────────────────────────────────────────────────────────────
 
 for key, default in [
