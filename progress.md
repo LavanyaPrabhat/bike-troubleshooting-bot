@@ -254,6 +254,18 @@ Secrets OPENAI_API_KEY and SARVAM_API_KEY set via Streamlit Cloud UI — not in 
 - errors-and-fixes.md: ECA-01, MT-01–MT-18
 - README.md: live on GitHub; demo URL and Loom link placeholders to be filled
 
+### Multilingual verification (2026-05-25, post-deployment)
+End-to-end pipeline tested across 6 Indic languages — all token guards skipped correctly, all rewriters output "Interceptor 650":
+
+| Language | Query topic | Reranker | Outcome |
+|---|---|---|---|
+| Tamil | Oil change interval | 5 chunks, score 7 | Correct Tamil answer ✓ |
+| Hindi | Tyre pressure | 5 chunks, score 10 | Correct Hindi answer with psi values ✓ |
+| Malayalam | Brake fluid check | 5 chunks, score 7 | Correct Malayalam answer ✓ |
+| Kannada | Fuel tank capacity | 5 chunks, score 7 | Correct Kannada answer ✓ |
+| Telugu | Battery replacement | 0 chunks | Correct Telugu refusal (info not in manual) ✓ |
+| Bengali | Engine oil spec | 5 chunks, score 10 | Correct Bengali answer ✓ |
+
 ### Nothing outstanding
 All levels complete. All known bugs fixed. All decisions and errors documented. Deployed and live.
 
