@@ -552,6 +552,26 @@ For Indic queries, the classifier is additionally guarded by the Decision #34 sh
 
 ---
 
+## 38. sarvam-m Removed from Generation Path; Sarvam Stack Is Saaras V3 Only
+
+**Decision:** sarvam-m is removed from `generator.py` entirely. GPT-4o handles all generation — English and Indic — via Rule 7 ("Respond in the same language the user's question is written in"). The Sarvam stack in this project is now Saaras V3 (ASR only, `transcriber.py`). Decisions #25, #28, and #29 are superseded.
+
+**Why GPT-4o is sufficient for Indic output:** Decision #35 confirmed GPT-4o with Rule 7 generates correct, grounded, natural-sounding answers directly in the user's language. The sarvam-m "translation" step that followed was translating GPT-4o Tamil output back into Tamil — a no-op. All multilingual verification (Tamil, Hindi, Malayalam, Kannada, Telugu, Gujarati — 5/6 correct answers, Telugu refusal correct) was completed with GPT-4o generating the final answer. sarvam-m added latency and a failure point without improving quality.
+
+**What was removed from `generator.py`:** `_sarvam_client`, `_get_sarvam_client()`, `_strip_think()`, `_call_sarvam()`, `_indic_message()`, `_generate_indic_refusal()`, `_generate_indic_multi_topic()`, `_INDIC_SYSTEM`. The `import re` is also removed (only used by `_strip_think`).
+
+**Simplified generation flow (all languages):** One GPT-4o call with `SYSTEM_PROMPT` + `_build_user_message()`. Rule 7 handles language. No branching between English and Indic paths.
+
+**Indic refusal path (no chunks):** GPT-4o is called with an empty excerpts message. Rule 2 fires ("If the excerpts do not contain enough information to answer, respond with exactly: 'I couldn't find that…'") and Rule 7 delivers it in the user's language. No dedicated refusal function needed.
+
+**Guard message (multi-topic, token-guard path):** `generate_guard_message()` uses GPT-4o translation for non-English languages instead of `_call_sarvam()`.
+
+**`sarvamai` SDK stays in `requirements.txt`:** Still required by `transcriber.py` (Saaras V3 ASR). Only sarvam-m is removed.
+
+**Trade-off:** The project no longer uses a Sarvam generation model. For the Sarvam AI take-home context, Saaras V3 for ASR is the remaining Sarvam integration — a deliberate choice grounded in where each model excels rather than forced integration.
+
+---
+
 ## Known Limitations (as of Level 1 Hardening)
 
 The following limitations remain after all edge case fixes. These are honest assessments for interview discussion.
@@ -578,7 +598,7 @@ Image now auto-clears after each query is submitted. See Decision #31.
 The ChromaDB index is built once from the specific PDF. There is no mechanism to update the index if the manual is revised, or to add supplementary documents. This is a deliberate simplification for the prototype scope.
 
 ### L7. ~~Voice Input is English Only (Level 2)~~ — RESOLVED (Level 3)
-`language_code` changed to `"unknown"` in `transcriber.py`; Saaras V3 auto-detects language. See also: manual testing confirmed Saaras transcribes spoken Hinglish into Devanagari, which is then correctly detected as Indic and routed to sarvam-m (Decision #27 updated).
+`language_code` changed to `"unknown"` in `transcriber.py`; Saaras V3 auto-detects language. Manual testing confirmed Saaras transcribes spoken Hinglish into Devanagari, correctly detected as Indic, routed through the pipeline and answered by GPT-4o in the user's language via Rule 7 (Decision #38).
 
 ### L8. Microphone Access Requires Browser Permission
 `st.audio_input` relies on the browser's `getUserMedia` API. If the user denies microphone permission, the widget renders but cannot capture audio. No in-app error message is shown — the browser handles the permission denial. Not fixable at the application layer.

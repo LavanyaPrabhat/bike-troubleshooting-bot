@@ -1,5 +1,4 @@
 import os
-import re
 import sys
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -9,53 +8,10 @@ load_dotenv()
 if sys.stdout.encoding != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# GPT-4o client — English path
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# sarvam-m client — Indic path, lazy init so SARVAM_API_KEY is only required
-# when an Indic query is actually processed.
-_sarvam_client: OpenAI | None = None
-
-
-def _get_sarvam_client() -> OpenAI:
-    global _sarvam_client
-    if _sarvam_client is None:
-        api_key = os.getenv("SARVAM_API_KEY")
-        if not api_key:
-            raise ValueError("SARVAM_API_KEY not set in environment")
-        _sarvam_client = OpenAI(
-            api_key=api_key,
-            base_url="https://api.sarvam.ai/v1",
-        )
-    return _sarvam_client
-
-
-def _strip_think(text: str) -> str:
-    """Remove <think>...</think> reasoning blocks that sarvam-m embeds in content.
-    Also handles truncated blocks (no closing tag) caused by hitting max_tokens mid-think.
-    """
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    if "<think>" in cleaned:
-        # Dangling open tag — truncation cut off before </think>. Drop everything from it.
-        cleaned = cleaned[: cleaned.index("<think>")].strip()
-    return cleaned
-
-
-def _call_sarvam(messages: list[dict], max_tokens: int) -> str:
-    """Shared Sarvam call: None guard + think-tag strip applied in one place."""
-    sarvam = _get_sarvam_client()
-    response = sarvam.chat.completions.create(
-        model="sarvam-m",
-        messages=messages,
-        temperature=0.3,
-        max_tokens=max_tokens,
-    )
-    raw = response.choices[0].message.content or ""
-    return _strip_think(raw)
-
-
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
-# Grounding layer 1. Rule 7 added at Level 3 — both GPT-4o and sarvam-m follow it.
+# Rule 7 handles Indic output — GPT-4o responds in the user's language natively.
 
 SYSTEM_PROMPT = """You are a technical support assistant for the Royal Enfield Interceptor 650 motorcycle.
 
@@ -90,53 +46,6 @@ MULTI_TOPIC_RESPONSE = {
     "sources": [],
 }
 
-_INDIC_SYSTEM = "You are a helpful assistant. Respond only in the same language as the user's message."
-
-
-def _indic_message(question: str, english_text: str, max_tokens: int) -> dict:
-    """Translate english_text into the same language as question via sarvam-m."""
-    answer = _call_sarvam(
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a translation assistant. "
-                    "Output ONLY the translated text — no explanations, no preamble."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Translate the message below into the same language as this sample "
-                    f"(use the sample ONLY to identify the language — do not answer it):\n"
-                    f"SAMPLE: {question}\n\n"
-                    f"MESSAGE TO TRANSLATE: {english_text}"
-                ),
-            },
-        ],
-        max_tokens=max_tokens,
-    )
-    return {"answer": answer, "sources": []}
-
-
-def _generate_indic_refusal(question: str) -> dict:
-    return _indic_message(
-        question,
-        "I couldn't find that in the Interceptor 650 manual. "
-        "Please consult an authorised Royal Enfield service centre.",
-        max_tokens=1024,
-    )
-
-
-def _generate_indic_multi_topic(question: str) -> dict:
-    return _indic_message(
-        question,
-        "Your question covers multiple topics. "
-        "Please ask about one symptom or issue at a time so I can give you "
-        "a precise answer from the manual.",
-        max_tokens=1024,
-    )
-
 
 # ── GUARD MESSAGE ─────────────────────────────────────────────────────────────
 
@@ -149,7 +58,8 @@ def generate_guard_message(question: str, detected_language: str) -> str:
     )
     if detected_language == "english":
         return english_text
-    return _call_sarvam(
+    response = client.chat.completions.create(
+        model="gpt-4o",
         messages=[
             {
                 "role": "system",
@@ -168,8 +78,10 @@ def generate_guard_message(question: str, detected_language: str) -> str:
                 ),
             },
         ],
-        max_tokens=1024,
+        temperature=0,
+        max_tokens=200,
     )
+    return response.choices[0].message.content.strip()
 
 
 # ── PROMPT ASSEMBLY ───────────────────────────────────────────────────────────
@@ -212,7 +124,7 @@ def generate_answer(
         question:           The user's question (original, not rewritten).
         chunks:             Top-K chunks from reranker (empty → refusal path).
         vision_description: Optional symptom string from vision.describe_image().
-        detected_language:  'english' → GPT-4o; 'indic' → sarvam-m.
+        detected_language:  'english' or 'indic' — GPT-4o handles both via Rule 7.
         raw_candidates:     All candidates from get_candidates() before reranking.
                             Used to distinguish multi-topic dilution from genuine
                             out-of-scope when chunks is empty.
@@ -222,62 +134,36 @@ def generate_answer(
     if not chunks:
         # Dilution classifier is calibrated on English embedding scores.
         # Cross-lingual scores for Indic queries are systematically lower and
-        # would misfire as "dilution" on single-topic queries. Skip it for Indic
-        # and fall straight through to the translated refusal.
+        # would misfire as "dilution" on single-topic queries. Skip it for Indic;
+        # call GPT-4o with empty excerpts so Rule 2 + Rule 7 fire naturally.
         if detected_language == "indic":
-            return _generate_indic_refusal(question)
+            user_message = _build_user_message(question, [], vision_description)
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_message},
+                ],
+                temperature=0.3,
+                max_tokens=200,
+            )
+            return {"answer": response.choices[0].message.content.strip(), "sources": []}
         failure_type = _classify_failure(raw_candidates)
         if failure_type == "dilution":
             return MULTI_TOPIC_RESPONSE
         return NO_CONTEXT_RESPONSE
 
     user_message = _build_user_message(question, chunks, vision_description)
-
-    if detected_language == "indic":
-        # GPT-4o generates the English answer (128K context handles 5 full chunks).
-        # sarvam-m context window is 7192 tokens — too small to hold the full prompt.
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": user_message},
-            ],
-            temperature=0.3,
-            max_tokens=600,
-        )
-        english_answer = response.choices[0].message.content.strip()
-        answer = _call_sarvam(
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a translation assistant. "
-                        "Output ONLY the translated text — no explanations, no preamble."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Translate the message below into the same language as this sample "
-                        f"(use the sample ONLY to identify the language — do not answer it):\n"
-                        f"SAMPLE: {question}\n\n"
-                        f"MESSAGE TO TRANSLATE: {english_answer}"
-                    ),
-                },
-            ],
-            max_tokens=1024,
-        )
-    else:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": user_message},
-            ],
-            temperature=0.3,
-            max_tokens=600,
-        )
-        answer = response.choices[0].message.content.strip()
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": user_message},
+        ],
+        temperature=0.3,
+        max_tokens=600,
+    )
+    answer = response.choices[0].message.content.strip()
 
     seen = set()
     sources = []

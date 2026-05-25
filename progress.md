@@ -1,7 +1,7 @@
 # Bike Bot — Build Progress
 
 ## Project: Royal Enfield Interceptor 650 Troubleshooting Bot
-**Stack:** RAG · ChromaDB · OpenAI (embeddings + GPT-4o) · Sarvam (sarvam-m ASR + generation) · Streamlit
+**Stack:** RAG · ChromaDB · OpenAI (embeddings + GPT-4o) · Sarvam (Saaras V3 ASR) · Streamlit
 **Deadline:** 2 days
 
 ---
@@ -181,7 +181,7 @@ Changes applied:
 
 ---
 
-## Decisions Log — COMPLETE (#29–#36)
+## Decisions Log — COMPLETE (#29–#38)
 
 - **#29** — sarvam-m switch + reasoning mode + `max_tokens=2048` + `_strip_think()` + `_call_sarvam()`
 - **#30** — Section-diversity heuristic for dilution detection; `_DILUTION_MIN_SECS` raised 3→5 after false positive on single-topic Indic queries
@@ -189,9 +189,10 @@ Changes applied:
 - **#32** — Voice auto-submits after transcription; `st.chat_input` path described (NOTE: reverted to `st.text_area` for layout reasons — Decision #32 partially describes superseded state)
 - **#33** — 75-token guard applies to user `prompt` only, not `combined_query`
 - **#34** — Dilution classifier skipped for Indic queries
-- **#35** — Indic generation: GPT-4o generates English answer, sarvam-m translates (fixes sarvam-m 7192-token context window crash)
+- **#35** — Indic generation: GPT-4o generates English answer, sarvam-m translates (fixes sarvam-m 7192-token context window crash) — superseded by #38
 - **#36** — Token guard skipped for Indic queries (cl100k_base tokenizes Indic scripts 5–7× more densely than English)
 - **#37** — Rewriter always outputs "Interceptor 650" not "my bike" — specific model name retrieves measurably better (sim 0.560 vs 0.509)
+- **#38** — sarvam-m removed from generation path entirely; GPT-4o with Rule 7 handles all Indic output; Sarvam stack is Saaras V3 (ASR) only
 
 ---
 
@@ -217,10 +218,9 @@ Secrets OPENAI_API_KEY and SARVAM_API_KEY set via Streamlit Cloud UI — not in 
 4. Rewriter (GPT-4o, temp=0) → normalised English query; always outputs "Interceptor 650" not "my bike" (Decision #37)
 5. Hybrid retrieval: semantic (text-embedding-3-small) + BM25, fused via RRF → 20 candidates
 6. Reranker (GPT-4o, temp=0) → scores 0–10, returns top 5 or [] if top score < 6
-7. Generator:
-   - Indic + chunks → GPT-4o generates English answer → sarvam-m translates to user's language (Decision #35)
-   - English + chunks → GPT-4o generates English answer
-   - Indic + no chunks → sarvam-m generates refusal in user's language (dilution classifier skipped — Decision #34)
+7. Generator (all languages: one GPT-4o call, Rule 7 handles language — Decision #38):
+   - chunks present → GPT-4o generates answer in user's language (Rule 7)
+   - Indic + no chunks → GPT-4o with empty excerpts → Rule 2 + Rule 7 fires in user's language (dilution classifier skipped — Decision #34)
    - English + no chunks → dilution classifier → MULTI_TOPIC_RESPONSE or NO_CONTEXT_RESPONSE
 
 ### All bugs fixed (complete list)
@@ -283,7 +283,7 @@ bike-bot/
 │   ├── retriever.py          ← Hybrid retrieval (semantic + BM25 + RRF) + query rewriting
 │   ├── reranker.py           ← GPT-4o re-ranker + classify_retrieval_failure() [MODIFIED]
 │   ├── vision.py             ← GPT-4o Vision (image → symptom description)
-│   ├── generator.py          ← Dual-model generation (GPT-4o + sarvam-m) [HEAVILY MODIFIED]
+│   ├── generator.py          ← GPT-4o-only generation; Rule 7 handles Indic output [SIMPLIFIED — Decision #38]
 │   ├── transcriber.py        ← Sarvam Saaras V3 ASR; language_code="unknown"
 │   └── language_detector.py  ← detect_language() → "english" | "indic"
 ├── app.py                    ← Streamlit frontend [MODIFIED — two-row input layout, all bugs fixed]
@@ -320,13 +320,12 @@ bike-bot/
    - dilution + english → MULTI_TOPIC_RESPONSE
    - out_of_scope + english → NO_CONTEXT_RESPONSE
    - chunks present + english → GPT-4o (model="gpt-4o", max_tokens=600)
-   - chunks present + indic → GPT-4o generates English answer → sarvam-m translates to user's language (Decision #35)
+   - chunks present + indic → GPT-4o generates answer directly in user's language via Rule 7 (Decision #38)
 
 **Sarvam API:**
-- Base URL: `https://api.sarvam.ai/v1`
-- Model: `sarvam-m` (24B, Indic-specialised; has reasoning mode → think tags must be stripped)
-- Auth: Bearer token via SARVAM_API_KEY
-- OpenAI-compatible API → use `openai.OpenAI(api_key=SARVAM_API_KEY, base_url=...)`
+- Used for ASR only (transcriber.py, Saaras V3)
+- Base URL for ASR: sarvamai SDK
+- sarvam-m removed from generation path (Decision #38); SARVAM_API_KEY only required for voice input
 - All Sarvam calls go through `_call_sarvam()` in generator.py which applies None guard + `_strip_think()`
 
 **Language detection logic (language_detector.py):**
