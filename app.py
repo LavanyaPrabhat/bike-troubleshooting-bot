@@ -32,10 +32,11 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
-/* FONT */
-html, body, [class*="st-"], .stMarkdown, button, input, textarea, select {
+/* FONT — scoped to safe containers only */
+.stApp, .stMarkdown, [data-testid="stChatMessage"],
+[data-testid="stSidebar"], [data-testid="stExpander"] {
     font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
 }
 
@@ -47,8 +48,8 @@ h1 {
     color: #111827 !important;
 }
 
-/* BODY TEXT */
-p, li {
+/* PROSE — only inside markdown blocks, not widget labels */
+.stMarkdown p, .stMarkdown li {
     font-size: 0.9rem !important;
     line-height: 1.7 !important;
     color: #1f2937 !important;
@@ -92,27 +93,12 @@ hr {
     background-color: #111827 !important;
     border: none !important;
     border-radius: 8px !important;
-    font-size: 1rem !important;
     font-weight: 500 !important;
     transition: background-color 0.15s ease !important;
 }
 [data-testid="baseButton-primary"]:hover {
     background-color: #374151 !important;
     border: none !important;
-}
-
-/* TEXT AREA */
-textarea {
-    font-size: 0.88rem !important;
-    border-radius: 8px !important;
-    border-color: #e5e7eb !important;
-    background-color: #ffffff !important;
-    line-height: 1.5 !important;
-    color: #111827 !important;
-}
-textarea:focus {
-    border-color: #6b7280 !important;
-    box-shadow: 0 0 0 2px rgba(107,114,128,0.12) !important;
 }
 
 /* SIDEBAR */
