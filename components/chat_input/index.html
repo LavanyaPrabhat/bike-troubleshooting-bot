@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --primary:     #ff4b4b;
+  --border:      rgba(49, 51, 63, 0.2);
+  --hover:       rgba(49, 51, 63, 0.08);
+  --text:        #31333f;
+  --placeholder: rgba(49, 51, 63, 0.4);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: transparent;
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* ── Thumbnail strip ─────────────────────────────────── */
+#thumb-row {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+#thumb-row.visible { display: flex; }
+#thumb-row img {
+  height: 52px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+#rm-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--text);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+#rm-btn:hover { background: var(--hover); }
+
+/* ── Input row ───────────────────────────────────────── */
+#input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+}
+
+.icon-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+  color: var(--text);
+  padding: 0;
+}
+.icon-btn:hover { background: var(--hover); }
+
+.icon-btn.active {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.icon-btn#send-btn {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.icon-btn#send-btn:hover { filter: brightness(0.88); }
+.icon-btn#send-btn:disabled {
+  background: var(--border);
+  border-color: transparent;
+  cursor: not-allowed;
+  color: rgba(255,255,255,0.6);
+}
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+.icon-btn.recording { animation: pulse 0.9s ease-in-out infinite; }
+
+/* ── Text area ───────────────────────────────────────── */
+#text-area {
+  flex: 1;
+  min-height: 36px;
+  max-height: 112px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  resize: none;
+  overflow-y: hidden;
+  outline: none;
+  line-height: 1.5;
+}
+#text-area:focus { border-color: rgba(49,51,63,0.45); }
+#text-area::placeholder { color: var(--placeholder); }
+
+#file-input { display: none; }
+</style>
+</head>
+<body>
+
+<input type="file" id="file-input" accept=".jpg,.jpeg,.png,.webp">
+
+<div id="thumb-row">
+  <img id="thumb-img" src="" alt="attached image">
+  <button id="rm-btn" title="Remove image">✕</button>
+</div>
+
+<div id="input-row">
+  <button class="icon-btn" id="attach-btn" title="Attach image">📎</button>
+  <textarea id="text-area" rows="1" placeholder="Ask about your Interceptor 650…"></textarea>
+  <button class="icon-btn" id="mic-btn" title="Record voice (click to start / stop)">🎤</button>
+  <button class="icon-btn" id="send-btn" disabled title="Send (Enter)">↑</button>
+</div>
+
+<script>
+const S = window.parent.Streamlit;
+
+/* ── State ─────────────────────────────────────────── */
+let pendingFile  = null;   // { data: base64, name, size }
+let pendingAudio = null;   // { data: base64, mime }
+let mediaRec     = null;
+let audioChunks  = [];
+let isRecording  = false;
+let audioMime    = 'audio/webm';
+
+/* ── DOM refs ──────────────────────────────────────── */
+const textarea  = document.getElementById('text-area');
+const sendBtn   = document.getElementById('send-btn');
+const attachBtn = document.getElementById('attach-btn');
+const micBtn    = document.getElementById('mic-btn');
+const fileInput = document.getElementById('file-input');
+const thumbRow  = document.getElementById('thumb-row');
+const thumbImg  = document.getElementById('thumb-img');
+const rmBtn     = document.getElementById('rm-btn');
+
+/* ── Theme sync ────────────────────────────────────── */
+S.onRender(data => {
+  const t = data.theme || {};
+  const bg = t.backgroundColor || '#ffffff';
+
+  const isDark = parseInt(bg.replace('#',''), 16) < 0x808080 * 3;
+  document.documentElement.style.setProperty(
+    '--border', isDark ? 'rgba(255,255,255,0.2)' : 'rgba(49,51,63,0.2)');
+  document.documentElement.style.setProperty(
+    '--hover', isDark ? 'rgba(255,255,255,0.08)' : 'rgba(49,51,63,0.08)');
+  document.documentElement.style.setProperty(
+    '--text', t.textColor || (isDark ? '#fafafa' : '#31333f'));
+  document.documentElement.style.setProperty(
+    '--placeholder', isDark ? 'rgba(250,250,250,0.4)' : 'rgba(49,51,63,0.4)');
+
+  if (t.primaryColor) {
+    document.documentElement.style.setProperty('--primary', t.primaryColor);
+  }
+
+  /* Clear signal from Python after a submit was processed */
+  if (data.args && data.args.should_clear) {
+    clearAll();
+  }
+});
+
+/* ── Frame height ──────────────────────────────────── */
+function syncHeight() {
+  const thumbH = thumbRow.classList.contains('visible')
+    ? thumbRow.offsetHeight + 6 : 0;
+  const rowH = document.getElementById('input-row').offsetHeight;
+  S.setFrameHeight(thumbH + rowH + 12);
+}
+
+/* ── Send button state ─────────────────────────────── */
+function updateSend() {
+  sendBtn.disabled = !textarea.value.trim() && !pendingFile;
+}
+
+/* ── Auto-resize textarea ──────────────────────────── */
+textarea.addEventListener('input', () => {
+  textarea.style.height = 'auto';
+  textarea.style.height = Math.min(textarea.scrollHeight, 112) + 'px';
+  syncHeight();
+  updateSend();
+});
+
+/* ── File upload ───────────────────────────────────── */
+attachBtn.addEventListener('click', () => fileInput.click());
+
+fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    pendingFile    = { data: reader.result.split(',')[1], name: file.name, size: file.size };
+    thumbImg.src   = reader.result;
+    thumbRow.classList.add('visible');
+    attachBtn.textContent = '🖼️';
+    syncHeight();
+    updateSend();
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';  /* allow re-selecting the same file */
+});
+
+rmBtn.addEventListener('click', () => {
+  pendingFile = null;
+  thumbImg.src = '';
+  thumbRow.classList.remove('visible');
+  attachBtn.textContent = '📎';
+  syncHeight();
+  updateSend();
+});
+
+/* ── Voice recording ───────────────────────────────── */
+micBtn.addEventListener('click', async () => {
+  if (isRecording) {
+    mediaRec.stop();
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    /* pick the best supported codec */
+    for (const m of ['audio/wav', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg']) {
+      if (MediaRecorder.isTypeSupported(m)) { audioMime = m; break; }
+    }
+    mediaRec    = new MediaRecorder(stream, { mimeType: audioMime });
+    audioChunks = [];
+    isRecording = true;
+    micBtn.textContent = '⏹️';
+    micBtn.classList.add('recording', 'active');
+
+    mediaRec.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRec.onstop = () => {
+      isRecording = false;
+      micBtn.textContent = '🎤';
+      micBtn.classList.remove('recording', 'active');
+      stream.getTracks().forEach(t => t.stop());
+
+      const blob   = new Blob(audioChunks, { type: audioMime });
+      const reader = new FileReader();
+      reader.onload = () => {
+        pendingAudio = { data: reader.result.split(',')[1], mime: audioMime };
+        submit();   /* auto-submit audio once recording ends */
+      };
+      reader.readAsDataURL(blob);
+    };
+    mediaRec.start();
+  } catch (err) {
+    alert('Microphone access error: ' + err.message);
+  }
+});
+
+/* ── Submit ────────────────────────────────────────── */
+function submit() {
+  const text = textarea.value.trim();
+  if (!text && !pendingFile && !pendingAudio) return;
+
+  const payload = { _ts: Date.now() };
+  if (text)         payload.text  = text;
+  if (pendingFile)  payload.file  = pendingFile;
+  if (pendingAudio) { payload.audio = pendingAudio; pendingAudio = null; }
+
+  S.setComponentValue(payload);
+}
+
+sendBtn.addEventListener('click', submit);
+textarea.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+});
+
+/* ── Clear (after Python processed the submit) ─────── */
+function clearAll() {
+  textarea.value = '';
+  textarea.style.height = 'auto';
+  pendingFile  = null;
+  pendingAudio = null;
+  thumbImg.src = '';
+  thumbRow.classList.remove('visible');
+  attachBtn.textContent = '📎';
+  syncHeight();
+  updateSend();
+}
+
+/* ── Init ──────────────────────────────────────────── */
+S.setComponentReady();
+setTimeout(syncHeight, 50);   /* let layout settle before measuring */
+</script>
+</body>
+</html>

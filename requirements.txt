@@ -1,0 +1,30 @@
+# Core AI / LLM
+openai==2.38.0
+
+# Vector store
+chromadb==1.5.9
+
+# PDF parsing (ingest only — not needed at runtime on Streamlit Cloud)
+pdfplumber==0.11.9
+PyMuPDF==1.27.2.3
+
+# Token counting
+tiktoken==0.13.0
+
+# BM25 keyword search (hybrid retrieval)
+rank-bm25==0.2.2
+
+# Environment variables
+python-dotenv==1.2.2
+
+# Frontend
+streamlit==1.57.0
+
+# Image handling
+Pillow==12.2.0
+
+# Sarvam AI SDK (ASR / voice transcription + Indic generation)
+sarvamai==0.1.28
+
+# Language detection (offline, for multilingual routing)
+langdetect==1.0.9
