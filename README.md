@@ -5,9 +5,6 @@ A RAG-based conversational assistant that answers maintenance and troubleshootin
 ## Live demo
 [https://bike-troubleshooting-bot-nwc3nh3jxmnwdvovzswgxa.streamlit.app/](https://bike-troubleshooting-bot-nwc3nh3jxmnwdvovzswgxa.streamlit.app/)
 
-## Video walkthrough
-[Loom link — to be added]
-
 ## What this does
 
 - **Text input** — ask any maintenance or troubleshooting question; answers are cited to specific manual sections and pages
